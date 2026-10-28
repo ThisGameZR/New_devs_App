@@ -45,6 +45,13 @@ async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str,
         raise Exception("Database pool not available")
 
     async with db_pool.get_session() as session:
+        owned = (await session.execute(
+            text("SELECT 1 FROM properties WHERE id = :property_id AND tenant_id = :tenant_id"),
+            {"property_id": property_id, "tenant_id": tenant_id},
+        )).fetchone()
+        if not owned:
+            raise LookupError(f"Property {property_id} not found for tenant {tenant_id}")
+
         query = text("""
             SELECT
                 SUM(total_amount) as total_revenue,
