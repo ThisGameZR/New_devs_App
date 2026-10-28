@@ -1,40 +1,30 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
-async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_session=None) -> Decimal:
-    """
-    Calculates revenue for a specific month.
-    """
 
-    start_date = datetime(year, month, 1)
+def month_bounds_utc(month: int, year: int, tz_name: str) -> Tuple[datetime, datetime]:
+    tz = ZoneInfo(tz_name)
+    start_date = datetime(year, month, 1, tzinfo=tz)
     if month < 12:
-        end_date = datetime(year, month + 1, 1)
+        end_date = datetime(year, month + 1, 1, tzinfo=tz)
     else:
-        end_date = datetime(year + 1, 1, 1)
-        
-    print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
+        end_date = datetime(year + 1, 1, 1, tzinfo=tz)
+    return start_date, end_date
 
-    # SQL Simulation (This would be executed against the actual DB)
-    query = """
-        SELECT SUM(total_amount) as total
-        FROM reservations
-        WHERE property_id = $1
-        AND tenant_id = $2
-        AND check_in_date >= $3
-        AND check_in_date < $4
-    """
-    
-    # In production this query executes against a database session.
-    # result = await db.fetch_val(query, property_id, tenant_id, start_date, end_date)
-    # return result or Decimal('0')
-    
-    return Decimal('0') # Placeholder for now until DB connection is finalized
 
-async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str, Any]:
-    """
-    Aggregates revenue from database.
-    """
+async def calculate_monthly_revenue(property_id: str, tenant_id: str, month: int, year: int) -> Decimal:
+    result = await calculate_total_revenue(property_id, tenant_id, month=month, year=year)
+    return Decimal(result["total"])
+
+
+async def calculate_total_revenue(
+    property_id: str,
+    tenant_id: str,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+) -> Dict[str, Any]:
     from app.core.database_pool import db_pool
     from sqlalchemy import text
 
@@ -45,24 +35,26 @@ async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str,
         raise Exception("Database pool not available")
 
     async with db_pool.get_session() as session:
-        owned = (await session.execute(
-            text("SELECT 1 FROM properties WHERE id = :property_id AND tenant_id = :tenant_id"),
+        prop = (await session.execute(
+            text("SELECT timezone FROM properties WHERE id = :property_id AND tenant_id = :tenant_id"),
             {"property_id": property_id, "tenant_id": tenant_id},
         )).fetchone()
-        if not owned:
+        if not prop:
             raise LookupError(f"Property {property_id} not found for tenant {tenant_id}")
 
-        query = text("""
+        sql = """
             SELECT
                 SUM(total_amount) as total_revenue,
                 COUNT(*) as reservation_count
             FROM reservations
             WHERE property_id = :property_id AND tenant_id = :tenant_id
-        """)
-        row = (await session.execute(query, {
-            "property_id": property_id,
-            "tenant_id": tenant_id,
-        })).fetchone()
+        """
+        params: Dict[str, Any] = {"property_id": property_id, "tenant_id": tenant_id}
+        if month is not None and year is not None:
+            params["start"], params["end"] = month_bounds_utc(month, year, prop.timezone)
+            sql += " AND check_in_date >= :start AND check_in_date < :end"
+
+        row = (await session.execute(text(sql), params)).fetchone()
 
     total = row.total_revenue or Decimal("0")
     return {

@@ -10,10 +10,12 @@ interface RevenueData {
 
 interface RevenueSummaryProps {
     propertyId?: string;
+    month?: number;
+    year?: number;
     showRaw?: boolean;
 }
 
-export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId = 'prop-001', showRaw }) => {
+export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId = 'prop-001', month, year, showRaw }) => {
     const [data, setData] = useState<RevenueData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -24,6 +26,8 @@ export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId = 'pr
             try {
                 // Use SecureAPI to handle authentication automatically
                 const response = await SecureAPI.getDashboardSummary(propertyId, {
+                    month,
+                    year,
                     timestamp: Date.now()
                 });
                 setError('');
@@ -37,7 +41,7 @@ export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId = 'pr
         };
 
         fetchRevenue();
-    }, [propertyId]);
+    }, [propertyId, month, year]);
 
     if (loading) {
         return (
