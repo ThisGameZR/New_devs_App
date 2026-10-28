@@ -1,7 +1,9 @@
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, Any, List, Optional, Tuple
 from zoneinfo import ZoneInfo
+
+CENT = Decimal("0.01")
 
 
 def month_bounds_utc(month: int, year: int, tz_name: str) -> Tuple[datetime, datetime]:
@@ -45,7 +47,8 @@ async def calculate_total_revenue(
         sql = """
             SELECT
                 SUM(total_amount) as total_revenue,
-                COUNT(*) as reservation_count
+                COUNT(*) as reservation_count,
+                MAX(currency) as currency
             FROM reservations
             WHERE property_id = :property_id AND tenant_id = :tenant_id
         """
@@ -56,11 +59,11 @@ async def calculate_total_revenue(
 
         row = (await session.execute(text(sql), params)).fetchone()
 
-    total = row.total_revenue or Decimal("0")
+    total = (row.total_revenue or Decimal("0")).quantize(CENT, rounding=ROUND_HALF_UP)
     return {
         "property_id": property_id,
         "tenant_id": tenant_id,
         "total": str(total),
-        "currency": "USD",
+        "currency": row.currency or "USD",
         "count": row.reservation_count,
     }
